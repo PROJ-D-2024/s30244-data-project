@@ -1,2 +1,3 @@
 pyspark
 pandas
+apache-airflow-providers-apache-spark
