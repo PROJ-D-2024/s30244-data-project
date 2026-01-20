@@ -115,7 +115,7 @@ with DAG(
         return df
 
     @task
-    def generate_report(df: pd.DataFrame):
+    def generate_report(df: pd.DataFrame, **kwargs):
         os.makedirs(REPORTS_DIR, exist_ok=True)
 
         logging.info("Generating report")
@@ -137,21 +137,22 @@ with DAG(
 
         logging.info(f"Generated report:\n {report}")
 
+        kwargs["ti"].xcom_push(key="report", value=json.dumps(report))
+        logging.info(f"Report pushed via XCom")
+
         with open(REPORT_FILE_PATH, "w") as f:
             json.dump(report, f)
         logging.info(f"Saved report to {REPORT_FILE_PATH}")
 
-        return REPORT_FILE_PATH
-
     @task
-    def notify(report_file_path: str):
-        with open(report_file_path, "r") as f:
-            report = json.load(f)
-            print(report)
+    def notify(**kwargs):
+        report = json.loads(kwargs["ti"].xcom_pull(task_ids="generate_report", key="report"))
+        print(f"Report:\n {report}")
 
     check_source_available()
     raw_file_path = download_data()
     valid_data = validate_data(raw_file_path)
     transformed_data = transform_data(valid_data)
-    report_file_path = generate_report(transformed_data)
-    notify(report_file_path)
+    generate_report_task = generate_report(transformed_data)
+    notify_task = notify()
+    generate_report_task >> notify_task
