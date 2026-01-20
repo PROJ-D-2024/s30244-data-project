@@ -6,11 +6,13 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 from airflow.exceptions import AirflowFailException
+from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
 from airflow import DAG
 from airflow.sdk import task
 
 DATASET_SOURCE = "https://storage.googleapis.com/kagglesdsdata/datasets/9189971/14389740/e_commerce_shopper_behaviour_and_lifestyle.csv?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=gcp-kaggle-com%40kaggle-161607.iam.gserviceaccount.com%2F20260119%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260119T143206Z&X-Goog-Expires=259200&X-Goog-SignedHeaders=host&X-Goog-Signature=75916a7299b4c71c91af2f8dc234abde7ef5c84578c2fb22e2216b9bd67c486060bcded451bb36479f49044662cb6c9632d3f07348c461fef18bd061f6cd5fdc8a2d3666dff66fb3b68607c0a49c048833bf9b5e9108f2f082341e84031731319be459928ebeb1564e858a02913448c6f915ab999f70b890f47b6c1ba426d19dd67369affbd1a4800faaa0e56f14b5de0ddc5b7e13d12d26b1e022219477efeb477d41b884d7b6f2b1eff946d1a48d704b6020160abd82f3d80fcb5a16adf18221ca1f9858afa70f151a7b9809291bef41a9b2b96c3a664ec983f38c58e5c1c5ffe6e65777dd848ed5928918fc42cc44ded47d2804b70abfa488c6148d259093"
+DATASET_NAME = "e-commerce"
 
 REQUIRED_COLUMNS = [
     "user_id",
@@ -50,7 +52,7 @@ with DAG(
     def download_data(**kwargs):
         ds = kwargs["ds"]
         raw_data_dir = f"/opt/airflow/data/raw/{ds}"
-        raw_file_path = os.path.join(raw_data_dir, "e-commerce.csv")
+        raw_file_path = os.path.join(raw_data_dir, f"{DATASET_NAME}.csv")
 
         os.makedirs(raw_data_dir, exist_ok=True)
 
@@ -83,40 +85,55 @@ with DAG(
 
         logging.info(f"Successfully validated data: {file_path}")
 
-        return df
+        return file_path
+
+    # @task
+    # def transform_data(df: pd.DataFrame, **kwargs):
+    #     ds = kwargs["ds"]
+    #     processed_data_dir = f"/opt/airflow/data/processed/{ds}"
+    #     processed_file_path = os.path.join(processed_data_dir, "e-commerce.csv")
+    #
+    #     os.makedirs(processed_data_dir, exist_ok=True)
+    #
+    #     logging.info("Transforming data")
+    #
+    #     rows = df.shape[0]
+    #     df = df[df["monthly_spend"] >= 0]
+    #     df = df[df["weekly_purchases"] >= 0]
+    #     df = df[df["account_age_months"] >= 0]
+    #     new_rows = df.shape[0]
+    #     logging.info(f"Removed {rows-new_rows} invalid rows")
+    #
+    #     df["last_purchase_date"] = pd.to_datetime(df["last_purchase_date"])
+    #     logging.info("Converted last_purchase_date to datetime")
+    #
+    #     bool_columns = ["has_children", "loyalty_program_member", "weekend_shopper", "premium_subscription"]
+    #     for column in bool_columns:
+    #         df[column] = df[column].astype(bool)
+    #         logging.info(f"Converted {column} to bool")
+    #
+    #     df.to_csv(processed_file_path)
+    #     logging.info(f"Saved processed dataset to {processed_file_path}")
+    #
+    #     return df
+
+    RAW_FILE_PATH = f"/opt/airflow/data/raw/{{{{ ds }}}}/{DATASET_NAME}.csv"
+    PROCESSED_DIR_PATH = f"/opt/airflow/data/processed/{{{{ ds }}}}/{DATASET_NAME}"
+
+    spark_transform = SparkSubmitOperator(
+        task_id="spark_transform",
+        application="/opt/airflow/spark_jobs/transformation.py",
+        conn_id="spark_default",
+        application_args=[
+            RAW_FILE_PATH,
+            PROCESSED_DIR_PATH
+        ],
+        spark_binary="spark-submit",
+        verbose=True
+    )
 
     @task
-    def transform_data(df: pd.DataFrame, **kwargs):
-        ds = kwargs["ds"]
-        processed_data_dir = f"/opt/airflow/data/processed/{ds}"
-        processed_file_path = os.path.join(processed_data_dir, "e-commerce.csv")
-
-        os.makedirs(processed_data_dir, exist_ok=True)
-
-        logging.info("Transforming data")
-
-        rows = df.shape[0]
-        df = df[df["monthly_spend"] >= 0]
-        df = df[df["weekly_purchases"] >= 0]
-        df = df[df["account_age_months"] >= 0]
-        new_rows = df.shape[0]
-        logging.info(f"Removed {rows-new_rows} invalid rows")
-
-        df["last_purchase_date"] = pd.to_datetime(df["last_purchase_date"])
-        logging.info("Converted last_purchase_date to datetime")
-
-        bool_columns = ["has_children", "loyalty_program_member", "weekend_shopper", "premium_subscription"]
-        for column in bool_columns:
-            df[column] = df[column].astype(bool)
-            logging.info(f"Converted {column} to bool")
-
-        df.to_csv(processed_file_path)
-        logging.info(f"Saved processed dataset to {processed_file_path}")
-
-        return df
-
-    @task
-    def generate_report(df: pd.DataFrame, **kwargs):
+    def generate_report(processed_dir_path: str, **kwargs):
         ds = kwargs["ds"]
         reports_dir = f"/opt/airflow/reports/{ds}"
         report_file_path = os.path.join(reports_dir, "report.json")
@@ -124,6 +141,8 @@ with DAG(
         os.makedirs(reports_dir, exist_ok=True)
 
         logging.info("Generating report")
+
+        df = pd.read_parquet(processed_dir_path)
 
         total_rows_processed = df.shape[0]
 
@@ -154,10 +173,10 @@ with DAG(
         report = json.loads(kwargs["ti"].xcom_pull(task_ids="generate_report", key="report"))
         print(f"Report:\n {report}")
 
-    check_source_available()
-    raw_file_path = download_data()
-    valid_data = validate_data(raw_file_path)
-    transformed_data = transform_data(valid_data)
-    generate_report_task = generate_report(transformed_data)
+    check_availability_task = check_source_available()
+    raw = download_data()
+    valid = validate_data(raw)
+    spark_transform_task = spark_transform
+    generate_report_task = generate_report(PROCESSED_DIR_PATH)
     notify_task = notify()
-    generate_report_task >> notify_task
+    check_availability_task >> raw >> valid >> spark_transform_task >> generate_report_task >> notify_task

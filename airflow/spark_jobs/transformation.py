@@ -31,6 +31,6 @@ for column in bool_columns:
     df_clean = df_clean.withColumn(column, col(column).cast("boolean"))
     print(f"Converted {column} to bool")
 
-df_clean.write.mode("overwrite").csv(output_path)
+df_clean.write.mode("overwrite").parquet(output_path)
 
 spark.stop()
