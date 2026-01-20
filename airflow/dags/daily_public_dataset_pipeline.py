@@ -1,3 +1,4 @@
+import logging
 import json
 import os.path
 from datetime import datetime, timedelta
@@ -8,7 +9,6 @@ from airflow.exceptions import AirflowFailException
 
 from airflow import DAG
 from airflow.sdk import task
-
 
 RAW_DATA_DIR = "/opt/airflow/data/raw"
 PROCESSED_DATA_DIR = "/opt/airflow/data/processed"
@@ -47,19 +47,21 @@ with DAG(
 ):
     @task
     def check_source_available():
-        print("Checking source availability")
+        logging.info(f"Checking dataset source availability: {DATASET_SOURCE}")
         resp = requests.get(DATASET_SOURCE)
         if resp.status_code != 200:
             raise AirflowFailException("Dataset source is unavailable")
+        logging.info("Dataset source is available")
 
     @task
     def download_data():
         os.makedirs(RAW_DATA_DIR, exist_ok=True)
 
-        print(f"Downloading raw dataset from {DATASET_SOURCE}")
+        logging.info(f"Downloading raw dataset from {DATASET_SOURCE}")
         df = pd.read_csv(DATASET_SOURCE)
+
         df.to_csv(RAW_FILE_PATH)
-        print(f"Saved raw dataset to {RAW_FILE_PATH}")
+        logging.info(f"Saved raw dataset to {RAW_FILE_PATH}")
 
         return RAW_FILE_PATH
 
@@ -67,7 +69,7 @@ with DAG(
     def validate_data(file_path: str):
         df = pd.read_csv(file_path)
 
-        print("Validating data")
+        logging.info(f"Validating data: {file_path}")
 
         if df.shape[0] < 50000:
             raise AirflowFailException("Dataset is too small")
@@ -82,42 +84,41 @@ with DAG(
         if not high_nulls.empty:
             raise AirflowFailException(f"Too many nulls in columns: {list(high_nulls.index)}")
 
+        logging.info(f"Successfully validated data: {file_path}")
+
         return df
 
     @task
     def transform_data(df: pd.DataFrame):
         os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
 
+        logging.info("Transforming data")
+
         rows = df.shape[0]
         df = df[df["monthly_spend"] >= 0]
         df = df[df["weekly_purchases"] >= 0]
         df = df[df["account_age_months"] >= 0]
         new_rows = df.shape[0]
-        print(f"Removed {rows-new_rows} invalid rows")
+        logging.info(f"Removed {rows-new_rows} invalid rows")
 
         df["last_purchase_date"] = pd.to_datetime(df["last_purchase_date"])
-        print("Converted last_purchase_date to datetime")
+        logging.info("Converted last_purchase_date to datetime")
 
-        df["has_children"] = df["has_children"].astype(bool)
-        print("Converted has_children to bool")
-
-        df["loyalty_program_member"] = df["loyalty_program_member"].astype(bool)
-        print("Converted loyalty_program_member to bool")
-
-        df["weekend_shopper"] = df["weekend_shopper"].astype(bool)
-        print("Converted weekend_shopper to bool")
-
-        df["premium_subscription"] = df["premium_subscription"].astype(bool)
-        print("Converted premium_subscription to bool")
+        bool_columns = ["has_children", "loyalty_program_member", "weekend_shopper", "premium_subscription"]
+        for column in bool_columns:
+            df[column] = df[column].astype(bool)
+            logging.info(f"Converted {column} to bool")
 
         df.to_csv(PROCESSED_FILE_PATH)
-        print(f"Saved processed dataset to {PROCESSED_FILE_PATH}")
+        logging.info(f"Saved processed dataset to {PROCESSED_FILE_PATH}")
 
         return df
 
     @task
     def generate_report(df: pd.DataFrame):
         os.makedirs(REPORTS_DIR, exist_ok=True)
+
+        logging.info("Generating report")
 
         total_rows_processed = df.shape[0]
 
@@ -134,8 +135,11 @@ with DAG(
             "premium_users": int(premium_users)
         }
 
+        logging.info(f"Generated report:\n {report}")
+
         with open(REPORT_FILE_PATH, "w") as f:
             json.dump(report, f)
+        logging.info(f"Saved report to {REPORT_FILE_PATH}")
 
         return REPORT_FILE_PATH
 
