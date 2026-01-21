@@ -24,11 +24,10 @@ def raw_file(ds: str, dataset_name: str) -> str:
     return f"{raw_data_dir(ds)}/{dataset_name}.csv"
 
 def processed_dir(ds: str) -> str:
-    return f"{BASE_DATA_DIR}/processed"
+    return f"{BASE_DATA_DIR}/processed/{ds}"
 
 def processed_file(ds: str, dataset_name: str) -> str:
     return f"{processed_dir(ds)}/{dataset_name}.csv"
-
 
 default_args = {
     "owner": "airflow",
