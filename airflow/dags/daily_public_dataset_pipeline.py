@@ -3,6 +3,7 @@ import json
 import os.path
 from datetime import datetime, timedelta
 
+import pandas as pd
 import requests
 from airflow.exceptions import AirflowFailException
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
@@ -16,6 +17,7 @@ DATASET_NAME = "e-commerce"
 BASE_DATA_DIR = "/opt/airflow/data/"
 RAW_FILE_TEMPLATE = f"{BASE_DATA_DIR}/raw/{{{{ ds }}}}/{DATASET_NAME}.csv"
 PROCESSED_FILE_TEMPLATE = f"{BASE_DATA_DIR}/processed/{{{{ ds }}}}/{DATASET_NAME}"
+REPORT_FILE_TEMPLATE = f"{BASE_DATA_DIR}/reports/{{{{ ds }}}}/{DATASET_NAME}"
 
 def raw_data_dir(ds: str) -> str:
     return f"{BASE_DATA_DIR}/raw/{ds}"
@@ -27,7 +29,13 @@ def processed_dir(ds: str) -> str:
     return f"{BASE_DATA_DIR}/processed/{ds}"
 
 def processed_file(ds: str, dataset_name: str) -> str:
-    return f"{processed_dir(ds)}/{dataset_name}.csv"
+    return f"{processed_dir(ds)}/{dataset_name}"
+
+def reports_dir(ds: str) -> str:
+    return f"{BASE_DATA_DIR}/reports/{ds}"
+
+def report_file(ds: str, dataset_name: str) -> str:
+    return f"{reports_dir(ds)}/{dataset_name}"
 
 default_args = {
     "owner": "airflow",
@@ -64,7 +72,7 @@ with DAG(
         with open(raw_file(ds, DATASET_NAME), "wb+") as f:
             f.write(resp.content)
 
-        logging.info(f"Saved raw dataset to {raw_file(ds, DATASET_NAME).format(ds)}")
+        logging.info(f"Saved raw dataset to {raw_file(ds, DATASET_NAME)}")
 
     spark_validate = SparkSubmitOperator(
         task_id="spark_validate",
@@ -89,51 +97,39 @@ with DAG(
         verbose=True
     )
 
+    spark_generate_report = SparkSubmitOperator(
+        task_id="spark_generate_report",
+        application="/opt/airflow/spark_jobs/generate_report.py",
+        conn_id="spark_default",
+        application_args=[
+            PROCESSED_FILE_TEMPLATE,
+            REPORT_FILE_TEMPLATE
+        ],
+        spark_binary="spark-submit",
+        verbose=True
+    )
+
     @task
-    def generate_report(**kwargs):
+    def push_report_to_xcom(**kwargs):
         ds = kwargs["ds"]
-        reports_dir = f"/opt/airflow/reports/{ds}"
-        report_file_path = os.path.join(reports_dir, "report.json")
 
-        os.makedirs(reports_dir, exist_ok=True)
+        df = pd.read_parquet(report_file(ds, DATASET_NAME))
 
-        logging.info("Generating report")
-
-        df = pd.read_parquet(processed_dir_path)
-
-        total_rows_processed = df.shape[0]
-
-        today = datetime.today()
-        yesterday = today - timedelta(days=1)
-        yesterday_dt = datetime(yesterday.year, yesterday.month, yesterday.day)
-        customers_yesterday = len(df[df["last_purchase_date"] == yesterday_dt])
-
-        premium_users = df["premium_subscription"].sum()
-
-        report = {
-            "total_rows_processed": int(total_rows_processed),
-            "customers_yesterday": int(customers_yesterday),
-            "premium_users": int(premium_users)
-        }
-
-        logging.info(f"Generated report:\n {report}")
+        report = df.iloc[0].to_dict()
 
         kwargs["ti"].xcom_push(key="report", value=json.dumps(report))
         logging.info(f"Report pushed via XCom")
 
-        with open(report_file_path, "w") as f:
-            json.dump(report, f)
-        logging.info(f"Saved report to {report_file_path}")
-
     @task
     def notify(**kwargs):
-        report = json.loads(kwargs["ti"].xcom_pull(task_ids="generate_report", key="report"))
+        report = json.loads(kwargs["ti"].xcom_pull(task_ids="push_report_to_xcom", key="report"))
         print(f"Report:\n {report}")
 
     check_availability_task = check_source_available()
     download_data_task = download_data()
     spark_validate_task = spark_validate
     spark_transform_task = spark_transform
-    # generate_report_task = generate_report()
-    # notify_task = notify()
-    check_availability_task >> download_data_task >> spark_validate_task >> spark_transform_task # >> generate_report_task >> notify_task
+    spark_generate_report_task = spark_generate_report
+    push_report_to_xcom_task = push_report_to_xcom()
+    notify_task = notify()
+    check_availability_task >> download_data_task >> spark_validate_task >> spark_transform_task >> spark_generate_report_task >> push_report_to_xcom_task >> notify_task
