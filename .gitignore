@@ -208,4 +208,5 @@ __marimo__/
 
 .idea/
 airflow/logs
+airflow/data
 draft.ipynb
