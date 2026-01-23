@@ -1,15 +1,26 @@
+import os
+
 from pyspark.sql import SparkSession
 
 import sys
 
 from pyspark.sql.functions import count, date_sub, col, current_date
 
-input_path = sys.argv[1]
-output_path = sys.argv[2]
+jdbc_url = sys.argv[1]
+table_name = sys.argv[2]
+output_path = sys.argv[3]
 
 spark = SparkSession.builder.appName("ReportGeneration").getOrCreate()
 
-df = spark.read.parquet(input_path)
+df = spark.read.jdbc(
+    url=jdbc_url,
+    table=table_name,
+    properties={
+        "user": os.environ["POSTGRES_USER"],
+        "password": os.environ["POSTGRES_PASSWORD"],
+        "driver": "org.postgresql.Driver"
+    }
+)
 
 yesterday_df = df.filter(
     col("last_purchase_date") == date_sub(current_date(), 1)
