@@ -11,8 +11,13 @@ from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOpe
 from airflow import DAG
 from airflow.sdk import task
 
+def jdbc_url():
+    return f"jdbc:postgresql://{os.environ["POSTGRES_HOST"]}:{os.environ["POSTGRES_PORT"]}/{os.environ["WAREHOUSE_DB"]}"
+
+def table_name():
+    return f"{os.environ["WAREHOUSE_SCHEMA_RAW"]}.{os.environ["DATASET_NAME"]}_clean"
+
 RAW_FILE_TEMPLATE = f"{os.environ["BASE_DATA_DIR"]}/{os.environ["RAW_SUBDIR"]}/{{{{ ds }}}}/{os.environ["DATASET_NAME"]}.csv"
-PROCESSED_FILE_TEMPLATE = f"{os.environ["BASE_DATA_DIR"]}/{os.environ["PROCESSED_SUBDIR"]}/{{{{ ds }}}}/{os.environ["DATASET_NAME"]}"
 REPORT_FILE_TEMPLATE = f"{os.environ["BASE_DATA_DIR"]}/{os.environ["REPORTS_SUBDIR"]}/{{{{ ds }}}}/{os.environ["DATASET_NAME"]}"
 
 def raw_data_dir(ds: str) -> str:
@@ -21,17 +26,15 @@ def raw_data_dir(ds: str) -> str:
 def raw_file(ds: str, dataset_name: str) -> str:
     return f"{raw_data_dir(ds)}/{dataset_name}.csv"
 
-def processed_dir(ds: str) -> str:
-    return f"{os.environ["BASE_DATA_DIR"]}/processed/{ds}"
-
-def processed_file(ds: str, dataset_name: str) -> str:
-    return f"{processed_dir(ds)}/{dataset_name}"
 
 def reports_dir(ds: str) -> str:
     return f"{os.environ["BASE_DATA_DIR"]}/reports/{ds}"
 
 def report_file(ds: str, dataset_name: str) -> str:
     return f"{reports_dir(ds)}/{dataset_name}"
+
+def spark_conn_id():
+    return os.environ["SPARK_CONN_ID"]
 
 default_args = {
     "owner": "airflow",
@@ -76,7 +79,7 @@ with DAG(
     spark_validate = SparkSubmitOperator(
         task_id="spark_validate",
         application="/opt/airflow/spark_jobs/validate.py",
-        conn_id="spark_default",
+        conn_id=spark_conn_id(),
         application_args=[
             RAW_FILE_TEMPLATE
         ],
@@ -87,10 +90,11 @@ with DAG(
     spark_transform = SparkSubmitOperator(
         task_id="spark_transform",
         application="/opt/airflow/spark_jobs/transform.py",
-        conn_id="spark_default",
+        conn_id=spark_conn_id(),
         application_args=[
             RAW_FILE_TEMPLATE,
-            PROCESSED_FILE_TEMPLATE
+            jdbc_url(),
+            table_name()
         ],
         jars=f"{os.environ["SPARK_JARS_DIR"]}/{os.environ["POSTGRES_JDBC_JAR"]}",
         spark_binary="spark-submit",
@@ -100,12 +104,14 @@ with DAG(
     spark_generate_report = SparkSubmitOperator(
         task_id="spark_generate_report",
         application="/opt/airflow/spark_jobs/generate_report.py",
-        conn_id="spark_default",
+        conn_id=spark_conn_id(),
         application_args=[
-            PROCESSED_FILE_TEMPLATE,
+            jdbc_url(),
+            table_name(),
             REPORT_FILE_TEMPLATE
         ],
         spark_binary="spark-submit",
+        jars=f"{os.environ["SPARK_JARS_DIR"]}/{os.environ["POSTGRES_JDBC_JAR"]}",
         verbose=True
     )
 
@@ -130,7 +136,7 @@ with DAG(
     download_data_task = download_data()
     spark_validate_task = spark_validate
     spark_transform_task = spark_transform
-    # spark_generate_report_task = spark_generate_report
-    # push_report_to_xcom_task = push_report_to_xcom()
-    # notify_task = notify()
-    check_availability_task >> download_data_task >> spark_validate_task >> spark_transform_task # >> spark_generate_report_task >> push_report_to_xcom_task >> notify_task
+    spark_generate_report_task = spark_generate_report
+    push_report_to_xcom_task = push_report_to_xcom()
+    notify_task = notify()
+    check_availability_task >> download_data_task >> spark_validate_task >> spark_transform_task >> spark_generate_report_task >> push_report_to_xcom_task >> notify_task
