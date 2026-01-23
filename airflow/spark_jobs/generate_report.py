@@ -29,7 +29,7 @@ yesterday_df = df.filter(
 yesterday_count = yesterday_df.count()
 
 premium_users = (
-    yesterday_df
+    df
     .filter(col("premium_subscription") == True)
     .count()
 )
