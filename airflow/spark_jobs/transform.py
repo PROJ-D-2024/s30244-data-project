@@ -1,5 +1,6 @@
 import os
 
+import psycopg2
 from pyspark.sql import SparkSession
 
 import sys
@@ -9,6 +10,22 @@ from pyspark.sql.functions import to_date, col
 input_path = sys.argv[1]
 jdbc_url = sys.argv[2]
 table_name = sys.argv[3]
+
+def clean_table():
+    conn = psycopg2.connect(
+        host=os.environ["POSTGRES_HOST"],
+        dbname=os.environ["WAREHOUSE_DB"],
+        user=os.environ["POSTGRES_USER"],
+        password=os.environ["POSTGRES_PASSWORD"],
+    )
+    conn.autocommit = True
+
+    with conn.cursor() as cur:
+        cur.execute(f"TRUNCATE TABLE {os.environ["WAREHOUSE_SCHEMA_RAW"]}.{os.environ["DATASET_NAME"]}_clean")
+
+    conn.close()
+
+clean_table()
 
 spark = SparkSession.builder.appName("Transformation").getOrCreate()
 
@@ -40,7 +57,7 @@ df_clean.write.format("jdbc")\
     .option("user", os.environ["POSTGRES_USER"])\
     .option("password", os.environ["POSTGRES_PASSWORD"])\
     .option("driver", "org.postgresql.Driver")\
-    .mode("overwrite")\
+    .mode("append")\
     .save()
 
 spark.stop()
