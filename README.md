@@ -97,12 +97,14 @@ Click the "Trigger" button (*Single Run*).
 ![slack notification](screenshots/slack_notification.png)
 
 ### 6. Run transformations and tests(dbt)
+Build models:
 ```
 docker compose run --rm dbt run --project-dir analytics
 ```
 **Result:**
 ![dbt data](screenshots/dbt_data.png)
 
+Run tests:
 ```
 docker compose run --rm dbt test --project-dir analytics
 ```
@@ -111,9 +113,12 @@ docker compose run --rm dbt test --project-dir analytics
 ![dbt test](screenshots/dbt_test.png)
 
 ### 7. dbt Documentation
+Generate documentation:
 ```
 docker compose run --rm dbt docs generate --project-dir analytics
 ```
+
+Serve documentation:
 ```
 docker compose run --rm -p 8085:8080 dbt \
   docs serve \
