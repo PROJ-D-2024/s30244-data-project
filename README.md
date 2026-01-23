@@ -109,3 +109,19 @@ docker compose run --rm dbt test --project-dir analytics
 
 **Result:**
 ![dbt test](screenshots/dbt_test.png)
+
+### 7. dbt Documentation
+```
+docker compose run --rm dbt docs generate --project-dir analytics
+```
+```
+docker compose run --rm -p 8085:8080 dbt \
+  docs serve \
+  --project-dir analytics \
+  --host 0.0.0.0
+```
+
+Go to http://localhost:8085.
+
+**Result:**
+![dbt docs](screenshots/dbt_docs.png)
