@@ -1,3 +1,4 @@
 pyspark
 pandas
 apache-airflow-providers-apache-spark
+apache-airflow-providers-slack
