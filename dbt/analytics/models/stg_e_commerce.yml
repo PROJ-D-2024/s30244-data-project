@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_e_commerce
+    description: "Cleaned and typed staging model"
+
+    columns:
+      - name: user_id
+        tests:
+          - not_null
+          - unique
+
+      - name: country
+        tests:
+          - not_null
+
+      - name: monthly_spend
+        tests:
+          - not_null
+
+      - name: premium_subscription
+        tests:
+          - not_null

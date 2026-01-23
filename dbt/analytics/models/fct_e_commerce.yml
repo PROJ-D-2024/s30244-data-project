@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: fct_e_commerce
+    description: "Aggregated country-level metrics"
+
+    columns:
+      - name: country
+        description: "Country where customers are located"
+        tests:
+          - not_null
+          - unique
+
+      - name: total_customers
+        description: "Total number of customers per country"
+        tests:
+          - not_null
+
+      - name: avg_monthly_spend
+        description: "Average monthly spend per country"
+        tests:
+          - not_null
+
+      - name: premium_customers
+        description: "Number of premium customers per country"
+        tests:
+          - not_null
