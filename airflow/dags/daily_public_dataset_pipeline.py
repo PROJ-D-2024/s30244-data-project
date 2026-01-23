@@ -7,6 +7,7 @@ import pandas as pd
 import requests
 from airflow.exceptions import AirflowFailException
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
+from airflow.providers.slack.notifications.slack import SlackNotifier
 
 from airflow import DAG
 from airflow.sdk import task
@@ -26,7 +27,6 @@ def raw_data_dir(ds: str) -> str:
 def raw_file(ds: str, dataset_name: str) -> str:
     return f"{raw_data_dir(ds)}/{dataset_name}.csv"
 
-
 def reports_dir(ds: str) -> str:
     return f"{os.environ["BASE_DATA_DIR"]}/reports/{ds}"
 
@@ -35,6 +35,12 @@ def report_file(ds: str, dataset_name: str) -> str:
 
 def spark_conn_id():
     return os.environ["SPARK_CONN_ID"]
+
+def slack_conn_id():
+    return os.environ["SLACK_CONN_ID"]
+
+def slack_channel():
+    return os.environ["SLACK_CHANNEL"]
 
 default_args = {
     "owner": "airflow",
@@ -127,7 +133,16 @@ with DAG(
         kwargs["ti"].xcom_push(key="report", value=json.dumps(report))
         logging.info(f"Report pushed via XCom")
 
-    @task
+    def slack_report_text():
+        return "{{ti.xcom_pull(task_ids='push_report_to_xcom', key='report')}}"
+
+    @task(
+        on_success_callback=SlackNotifier(
+            slack_conn_id=slack_conn_id(),
+            text=slack_report_text(),
+            channel=slack_channel()
+        )
+    )
     def notify(**kwargs):
         report = json.loads(kwargs["ti"].xcom_pull(task_ids="push_report_to_xcom", key="report"))
         print(f"Report:\n {report}")
