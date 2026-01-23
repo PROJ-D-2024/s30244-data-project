@@ -6,20 +6,9 @@ import sys
 
 from pyspark.sql.functions import to_date, col
 
-POSTGRES_HOST = os.environ["POSTGRES_HOST"]
-POSTGRES_PORT = os.environ["POSTGRES_PORT"]
-POSTGRES_USER = os.environ["POSTGRES_USER"]
-POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
-
-WAREHOUSE_DB = os.environ["WAREHOUSE_DB"]
-WAREHOUSE_SCHEMA_RAW = os.environ["WAREHOUSE_SCHEMA_RAW"]
-DATASET_NAME = os.environ["DATASET_NAME"]
-
-jdbc_url = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{WAREHOUSE_DB}"
-table_name = f"{WAREHOUSE_SCHEMA_RAW}.{DATASET_NAME}_clean"
-
 input_path = sys.argv[1]
-output_path = sys.argv[2]
+jdbc_url = sys.argv[2]
+table_name = sys.argv[3]
 
 spark = SparkSession.builder.appName("Transformation").getOrCreate()
 
@@ -48,8 +37,8 @@ for column in bool_columns:
 df_clean.write.format("jdbc")\
     .option("url", jdbc_url)\
     .option("dbtable", table_name)\
-    .option("user", POSTGRES_USER)\
-    .option("password", POSTGRES_PASSWORD)\
+    .option("user", os.environ["POSTGRES_USER"])\
+    .option("password", os.environ["POSTGRES_PASSWORD"])\
     .option("driver", "org.postgresql.Driver")\
     .mode("overwrite")\
     .save()
