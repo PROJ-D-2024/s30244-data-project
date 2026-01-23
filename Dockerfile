@@ -21,6 +21,12 @@ ENV SPARK_HOME=/opt/spark
 ENV PATH=$PATH:$JAVA_HOME/bin:$SPARK_HOME/bin:$SPARK_HOME/sbin
 ENV PYTHONPATH=$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9.7-src.zip:$PYTHONPATH
 
+ENV SPARK_JARS_DIR=/opt/airflow/jars
+ENV POSTGRES_JDBC_JAR=postgresql-42.7.8.jar
+RUN mkdir -p ${SPARK_JARS_DIR} \
+    && curl -L https://jdbc.postgresql.org/download/${POSTGRES_JDBC_JAR} \
+    -o ${SPARK_JARS_DIR}/${POSTGRES_JDBC_JAR}
+
 USER airflow
 
 COPY airflow/requirements.txt /requirements.txt
