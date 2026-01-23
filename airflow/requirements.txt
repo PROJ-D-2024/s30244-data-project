@@ -2,3 +2,4 @@ pyspark
 pandas
 apache-airflow-providers-apache-spark
 apache-airflow-providers-slack
+psycopg2-binary
